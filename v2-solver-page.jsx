@@ -55,6 +55,7 @@ function SolverPage() {
           </div>
         </div>
       </GridBg>
+      <SiteFooter current="solve"/>
     </div>
   );
 }

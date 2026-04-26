@@ -9,7 +9,9 @@ function V2Intro() {
   const [exampleSeed, setExampleSeed] = React.useState(null);
 
   return (
-    <GridBg width={900} style={{ minHeight: 2400, padding: '52px 70px 80px',
+    <React.Fragment>
+    <GridBg width={900} style={{ margin: '0 auto', minHeight: 2400,
+      padding: '52px 70px 80px',
       lineHeight: 1.55, position: 'relative' }}>
       {/* masthead */}
       <div style={{ display: 'flex', justifyContent: 'space-between',
@@ -298,6 +300,8 @@ function V2Intro() {
       <div data-mini-anchor style={{ position: 'absolute',
         top: 2000, left: 0, width: 1, height: 1 }}/>
     </GridBg>
+    <SiteFooter current="essay"/>
+    </React.Fragment>
   );
 }
 

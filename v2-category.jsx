@@ -199,6 +199,7 @@ function CategoryPage({ cfg }) {
           </div>
         </a>
       </GridBg>
+      <SiteFooter current={cfg.slug}/>
     </div>
   );
 }

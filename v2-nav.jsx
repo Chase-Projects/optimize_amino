@@ -3,6 +3,7 @@
 const NAV_LINKS = [
   { href: 'index.html',          label: 'Essay',          short: 'essay' },
   { href: 'solver.html',         label: 'Solver',         short: 'solve' },
+  { href: 'simple.html',         label: 'Simple',         short: 'simple' },
   { href: 'grains.html',         label: 'Grains',         short: 'grains' },
   { href: 'legumes.html',        label: 'Legumes',        short: 'legumes' },
   { href: 'protein-powder.html', label: 'Protein powder', short: 'powder' },
