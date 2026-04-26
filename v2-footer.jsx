@@ -1,94 +1,55 @@
 // v2-footer.jsx — Shared site footer rendered on every page.
-// Mirrors TopNav's link list, plus a repo link and a small colophon.
+// One simple row of page links. Two themes:
+//   theme="v2"     (default) — paper/ink, matches the editorial site
+//   theme="simple" — white/black, matches the accessible page
 
-const FOOTER_SECTIONS = [
-  {
-    title: 'Tools',
-    links: [
-      { href: 'index.html',  label: 'Essay (intro)',          short: 'essay' },
-      { href: 'solver.html', label: 'Solver — all options',   short: 'solve' },
-      { href: 'simple.html', label: 'Simple solver — accessible', short: 'simple' },
-    ],
-  },
-  {
-    title: 'Pantry guides',
-    links: [
-      { href: 'grains.html',         label: 'Grains',         short: 'grains' },
-      { href: 'legumes.html',        label: 'Legumes',        short: 'legumes' },
-      { href: 'protein-powder.html', label: 'Protein powder', short: 'powder' },
-      { href: 'milk.html',           label: 'Plant milks',    short: 'milk' },
-      { href: 'seitan.html',         label: 'Seitan',         short: 'seitan' },
-    ],
-  },
-  {
-    title: 'Project',
-    links: [
-      { href: 'https://github.com/Chase-Projects/optimize_amino',
-        label: 'Source on GitHub', external: true },
-      { href: 'https://github.com/Chase-Projects/optimize_amino/issues',
-        label: 'Issues / requests', external: true },
-    ],
-  },
+const FOOTER_LINKS = [
+  { href: 'index.html',          label: 'Essay',          short: 'essay'   },
+  { href: 'solver.html',         label: 'Solver',         short: 'solve'   },
+  { href: 'simple.html',         label: 'Simple',         short: 'simple'  },
+  { href: 'grains.html',         label: 'Grains',         short: 'grains'  },
+  { href: 'legumes.html',        label: 'Legumes',        short: 'legumes' },
+  { href: 'protein-powder.html', label: 'Protein powder', short: 'powder'  },
+  { href: 'milk.html',           label: 'Plant milks',    short: 'milk'    },
+  { href: 'seitan.html',         label: 'Seitan',         short: 'seitan'  },
 ];
 
-function SiteFooter({ current }) {
-  return (
-    <footer style={{ background: V2.ink, color: V2.paper,
-      fontFamily: V2.font, padding: '40px 32px 28px', marginTop: 60 }}
-      role="contentinfo" aria-label="Site footer">
-      <div style={{ maxWidth: 1000, margin: '0 auto',
-        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-        gap: 28 }}>
-        {FOOTER_SECTIONS.map(sec => (
-          <div key={sec.title}>
-            <div style={{ fontSize: 11, letterSpacing: 1.6,
-              textTransform: 'uppercase', color: V2.mustard,
-              fontWeight: 800, marginBottom: 12 }}>
-              {sec.title}
-            </div>
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0,
-              display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {sec.links.map(l => {
-                const on = current && l.short === current;
-                return (
-                  <li key={l.href}>
-                    <a href={l.href}
-                      {...(l.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                      aria-current={on ? 'page' : undefined}
-                      style={{ color: on ? V2.mustard : V2.paper,
-                        textDecoration: on ? 'underline' : 'none',
-                        fontSize: 14, fontWeight: on ? 700 : 500,
-                        borderBottom: on ? `1px solid ${V2.mustard}` : '1px solid transparent',
-                        paddingBottom: 1 }}>
-                      {l.label}
-                      {l.external && (
-                        <span aria-hidden="true" style={{ marginLeft: 4,
-                          fontSize: 11, color: V2.mute2 }}>↗</span>
-                      )}
-                    </a>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
-      </div>
+function SiteFooter({ current, theme = 'v2' }) {
+  const isSimple = theme === 'simple';
+  const t = isSimple
+    ? { bg: '#ffffff', ink: '#111111', mute: '#4a4a4a', accent: '#0046b8',
+        rule: '#777777', font: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif' }
+    : { bg: V2.paper,  ink: V2.ink,    mute: V2.mute,   accent: V2.tomato,
+        rule: V2.rule, font: V2.font };
 
-      <div style={{ maxWidth: 1000, margin: '28px auto 0',
-        paddingTop: 18, borderTop: `1px solid ${V2.mute}`,
-        display: 'flex', justifyContent: 'space-between',
-        flexWrap: 'wrap', gap: 12,
-        fontSize: 12, color: V2.mute2 }}>
-        <div>
-          <strong style={{ color: V2.paper }}>Optimize Amino</strong>
-          {' · '}a linear-programming sketch of vegan protein.
-        </div>
-        <div style={{ fontFamily: V2.mono }}>
-          static · React + Babel from CDN · MIT
-        </div>
-      </div>
+  return (
+    <footer role="contentinfo" aria-label="Site footer"
+      style={{ background: t.bg, color: t.ink, fontFamily: t.font,
+        borderTop: `${isSimple ? 2 : 1}px solid ${t.rule}`,
+        marginTop: 60, padding: '20px 24px' }}>
+      <ul style={{ listStyle: 'none', padding: 0, margin: '0 auto',
+        maxWidth: 1000, display: 'flex', flexWrap: 'wrap',
+        gap: '8px 22px', justifyContent: 'center' }}>
+        {FOOTER_LINKS.map(l => {
+          const on = current && l.short === current;
+          return (
+            <li key={l.href}>
+              <a href={l.href}
+                aria-current={on ? 'page' : undefined}
+                style={{ color: on ? t.accent : t.ink,
+                  fontSize: 14, fontWeight: on ? 700 : 500,
+                  textDecoration: on ? 'none' : 'underline',
+                  textDecorationColor: t.rule, textUnderlineOffset: 3,
+                  borderBottom: on ? `2px solid ${t.accent}` : '2px solid transparent',
+                  paddingBottom: 1 }}>
+                {l.label}
+              </a>
+            </li>
+          );
+        })}
+      </ul>
     </footer>
   );
 }
 
-Object.assign(window, { SiteFooter, FOOTER_SECTIONS });
+Object.assign(window, { SiteFooter, FOOTER_LINKS });

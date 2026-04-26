@@ -1,14 +1,10 @@
 // v2-nav.jsx — Shared top navigation bar used across pages.
 
+// Top nav is intentionally minimal — only the two primary destinations.
+// Everything else (simple solver, category guides) lives in the footer.
 const NAV_LINKS = [
-  { href: 'index.html',          label: 'Essay',          short: 'essay' },
-  { href: 'solver.html',         label: 'Solver',         short: 'solve' },
-  { href: 'simple.html',         label: 'Simple',         short: 'simple' },
-  { href: 'grains.html',         label: 'Grains',         short: 'grains' },
-  { href: 'legumes.html',        label: 'Legumes',        short: 'legumes' },
-  { href: 'protein-powder.html', label: 'Protein powder', short: 'powder' },
-  { href: 'milk.html',           label: 'Plant milks',    short: 'milk' },
-  { href: 'seitan.html',         label: 'Seitan',         short: 'seitan' },
+  { href: 'index.html',  label: 'Essay',  short: 'essay' },
+  { href: 'solver.html', label: 'Solver', short: 'solve' },
 ];
 
 function TopNav({ current }) {

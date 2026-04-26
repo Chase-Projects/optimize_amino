@@ -80,14 +80,8 @@ const SIMPLE_CSS = `
 `;
 
 const SIMPLE_NAV = [
-  { href: 'index.html',          label: 'Essay' },
-  { href: 'solver.html',         label: 'Solver (full)' },
-  { href: 'simple.html',         label: 'Simple', current: true },
-  { href: 'grains.html',         label: 'Grains' },
-  { href: 'legumes.html',        label: 'Legumes' },
-  { href: 'protein-powder.html', label: 'Protein powder' },
-  { href: 'milk.html',           label: 'Plant milks' },
-  { href: 'seitan.html',         label: 'Seitan' },
+  { href: 'index.html',  label: 'Essay' },
+  { href: 'solver.html', label: 'Solver' },
 ];
 
 function SimpleTopBar() {
@@ -277,7 +271,7 @@ function SimplePage() {
         </section>
       </main>
 
-      <SiteFooter current="simple"/>
+      <SiteFooter current="simple" theme="simple"/>
     </div>
   );
 }
