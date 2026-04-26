@@ -1,0 +1,498 @@
+---
+title: "USDA Vegan Foods — Curated AA Dataset"
+output: html_notebook
+---
+
+This notebook builds a curated subset of the USDA food database for use in the
+vegan amino acid LP optimizer. It keeps only plain, consumer-relevant forms of
+plant foods with complete essential amino acid (EAA) data, in both dry and
+cooked forms where available.
+
+---
+
+## 1 — Setup
+
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+
+DATA_DIR <- "~/code/amino_optimize/USDA Data"
+
+fn         <- read.csv(file.path(DATA_DIR, "food_nutrient.csv"))          |> select(fdc_id, nutrient_id, amount)
+nutrients  <- read.csv(file.path(DATA_DIR, "nutrient.csv"))                |> select(id, name, unit_name)
+food_names <- read.csv(file.path(DATA_DIR, "food_update_log_entry.csv"))  |> select(id, description)
+```
+
+---
+
+## 2 — Pivot and label nutrients
+
+```{r pivot}
+fn_wide <- fn |>
+  pivot_wider(id_cols = fdc_id, names_from = nutrient_id, values_from = amount)
+
+nutrient_lookup <- setNames(
+  paste0(nutrients$name, " (", tolower(nutrients$unit_name), ")"),
+  as.character(nutrients$id)
+)
+
+fn_full <- fn_wide |>
+  rename_with(~ nutrient_lookup[.x], .cols = -fdc_id) |>
+  left_join(food_names, by = c("fdc_id" = "id")) |>
+  select(fdc_id, description, `Protein (g)`, everything())
+```
+
+---
+
+## 3 — Vegan base filter (fnf)
+
+Keeps foods with all of:
+- `Cholesterol == 0` (vegan proxy; requires the value to be recorded, not NA)
+- `Lactose == 0`     (excludes dairy; same caveat — see §5 for plant foods with NA)
+- `Protein > 2 g`   (excludes trace-protein foods like spices)
+- `Lysine > 0` and `Leucine > 0` (ensures EAA panel was measured)
+
+This yields 273 rows; §4 and §5 narrow these down to ~60 useful entries.
+
+```{r fnf}
+fnf <- fn_full |>
+  filter(
+    !is.na(`Cholesterol (mg)`) & `Cholesterol (mg)` == 0,
+    !is.na(`Lactose (g)`)      & `Lactose (g)` == 0,
+    !is.na(`Protein (g)`)      & `Protein (g)` > 2,
+    !is.na(`Lysine (g)`)       & `Lysine (g)` > 0,
+    !is.na(`Leucine (g)`)      & `Leucine (g)` > 0
+  ) |>
+  arrange(description)
+
+cat("Rows passing vegan + protein filter:", nrow(fnf), "\n")
+```
+
+---
+
+## 4 — Curated selection from fnf
+
+Hand-selected to include:
+- **Both dry and cooked** forms where available (supports mixed dry/cooked meal plans)
+- **No salt**, unfortified, or raw variants preferred over salted/enriched/processed
+- **No brands**, restaurant items, junk food, spices, or duplicate preparations
+
+Each kept entry lists the exact USDA description and the reason it was included.
+The REMOVED section documents what was dropped and why.
+
+```{r curated}
+
+# ── KEPT ──────────────────────────────────────────────────────────────────────
+kept <- tribble(
+  ~description,                                                                                    ~note,
+
+  # Grains — dry ---------------------------------------------------------------
+  # Dry forms let users model uncooked weight (e.g. measuring out a dry grain mix).
+
+  "Amaranth grain, uncooked",
+    "ancient grain; unusually complete EAA for a grain; dry form",
+
+  "Cereals, oats, regular and quick, not fortified, dry",
+    "dry rolled oats; not fortified avoids enrichment noise",
+
+  "Cornmeal, degermed, unenriched, yellow",
+    "polenta/cornmeal; unenriched; yellow preferred over white (same AAs, clearer identity)",
+
+  "Pasta, dry, unenriched",
+    "dry pasta; unenriched variant; enriched adds B vitamins but not relevant to AAs",
+
+  "Rice, brown, long-grain, raw (Includes foods for USDA's Food Distribution Program)",
+    "dry brown rice",
+
+  "Rice, white, long-grain, regular, raw, enriched",
+    "dry white rice; no 'cooked without salt' entry for plain white rice in this dataset",
+
+  "Rye grain",
+    "whole rye berry; kept for completeness alongside rye flour below",
+
+  "Spelt, uncooked",
+    "ancient wheat relative; increasingly available in health-food stores",
+
+  "Wheat, KAMUT khorasan, uncooked",
+    "ancient grain; higher protein than modern wheat; common in specialty baking",
+
+  # NOTE — the following grains are not in the USDA Data CSVs (food_update_log_entry.csv)
+  # and were fetched separately from the USDA API. They are added to fnf_special in §5.
+  # Millet raw (169702), Millet cooked (168871)
+  # Teff uncooked (169747), Teff cooked (168918)
+  # Couscous dry (169699), Couscous cooked (169700)
+  # Sorghum grain (169716)
+  # Black rice and red rice: no SR Legacy entry in USDA — use brown rice as proxy.
+
+  # Flours (dry) — kept as distinct group for bread/baking page
+  "Wheat flour, white (industrial), 11.5% protein, bleached, unenriched",
+    "best proxy for all-purpose flour (~11–12% protein); unenriched to avoid vitamin noise; 9/10/13/15% variants dropped as redundant",
+
+  "Rye flour, medium",
+    "medium extraction rye flour; representative of common rye flour sold to consumers; light (less fiber) and dark (more bitter) dropped",
+
+  # Grains — cooked ------------------------------------------------------------
+  "Cereals, oats, regular and quick, unenriched, cooked with water (includes boiling and microwaving), without salt",
+    "cooked oats; without salt",
+
+  "Pasta, cooked, enriched, without added salt",
+    "cooked pasta; without salt; enriched/unenriched nutritionally equivalent post-cooking",
+
+  "Pasta, whole-wheat, cooked (Includes foods for USDA's Food Distribution Program)",
+    "whole-wheat pasta; higher fiber and slightly better Lys than white pasta",
+
+  "Rice, brown, long-grain, cooked (Includes foods for USDA's Food Distribution Program)",
+    "cooked brown rice; without salt",
+
+  "Rice, white, long-grain, parboiled, enriched, cooked",
+    "best available proxy for plain cooked white rice in this dataset; parboiling minimally affects AAs",
+
+  # Legumes — dry --------------------------------------------------------------
+  "Beans, pinto, mature seeds, raw (Includes foods for USDA's Food Distribution Program)",
+    "dry pinto beans; only bean with both dry AND cooked entries with AA data in this dataset",
+
+  "Lentils, raw",
+    "dry green/brown lentils; cooked form pulled as special case in §5",
+
+  "Peas, green, split, mature seeds, raw",
+    "dry split peas; cooked form not in dataset (only as soup)",
+
+  # Legumes — cooked -----------------------------------------------------------
+  "Beans, pinto, mature seeds, cooked, boiled, without salt",
+    "cooked pinto beans; without salt",
+
+  "Edamame, frozen, prepared",
+    "immature soybeans; high Lys, complete EAA; unique texture vs. mature soy",
+
+  # Nuts — raw/plain -----------------------------------------------------------
+  # Raw preferred; roasted/salted variants have nearly identical AAs so dropped.
+
+  "Nuts, almonds",
+    "raw almonds",
+
+  "Nuts, brazilnuts, dried, unblanched",
+    "exceptional Met+Cys source; LP uses these to satisfy sulfur AA constraint",
+
+  "Nuts, cashew nuts, raw",
+    "raw cashews",
+
+  "Nuts, hazelnuts or filberts",
+    "raw hazelnuts; blanched and dry-roasted variants dropped",
+
+  "Nuts, macadamia nuts, raw",
+    "raw macadamia; lower protein but popular and calorie-dense",
+
+  "Nuts, pecans",
+    "raw pecans",
+
+  "Nuts, pine nuts, dried",
+    "dried pine nuts",
+
+  "Nuts, pistachio nuts, raw",
+    "raw pistachios; relatively high Lys for a nut",
+
+  "Nuts, walnuts, english",
+    "raw English walnuts; black walnut variant dropped (less common)",
+
+  # Seeds & spreads ------------------------------------------------------------
+  "Seeds, flaxseed",
+    "whole flaxseed; ALA omega-3 source; high fiber",
+
+  "Seeds, pumpkin and squash seed kernels, dried",
+    "dried pumpkin seed kernels; high His and Ile; roasted variants dropped",
+
+  "Seeds, sesame seed kernels, dried (decorticated)",
+    "hulled sesame seeds; good Met source; tahini equivalent in raw form",
+
+  "Seeds, sunflower seed kernels, oil roasted, without salt",
+    "roasted sunflower kernels, no salt; only complete-AA entry for sunflower in fnf (dry roasted salted dropped)",
+
+  "Peanut butter, smooth style, without salt",
+    "no-salt smooth PB; used as fixed serving in LP (not scalable per 100g)",
+
+  # Vegetables — raw -----------------------------------------------------------
+  "Asparagus, raw",
+    "modest protein but all 9 EAAs present; popular spring vegetable",
+
+  "Corn, sweet, yellow, raw",
+    "raw sweet corn; yellow preferred over white (same AAs)",
+
+  "Kale, raw",
+    "raw kale; notably Lys-rich for a leafy green",
+
+  "Mushrooms, oyster, raw",
+    "higher protein than button; umami staple in vegan cooking",
+
+  "Mushrooms, portabella, raw",
+    "popular meat substitute; raw form",
+
+  "Mushrooms, white, raw",
+    "button mushrooms; most common variety",
+
+  "Peas, green, raw",
+    "raw green peas",
+
+  "Potatoes, flesh and skin, raw",
+    "raw potato; skin included for completeness",
+
+  "Spinach, raw",
+    "raw spinach; Lys-rich leafy green",
+
+  # Vegetables — cooked (without salt) ----------------------------------------
+  "Broccoli, cooked, boiled, drained, without salt",
+    "cooked broccoli; without salt",
+
+  "Corn, sweet, yellow, cooked, boiled, drained, without salt",
+    "cooked corn; without salt",
+
+  "Kale, cooked, boiled, drained, without salt",
+    "cooked kale; without salt",
+
+  "Mushrooms, shiitake, stir-fried",
+    "cooked shiitake; no 'without salt' cooked option in dataset",
+
+  "Peas, green, frozen, cooked, boiled, drained, without salt",
+    "frozen green peas cooked; without salt; most common retail form",
+
+  "Potatoes, baked, flesh and skin, without salt",
+    "baked potato; without salt",
+
+  "Spinach, frozen, chopped or leaf, cooked, boiled, drained, without salt",
+    "cooked frozen spinach; without salt",
+
+  "Sweet potato, cooked, baked in skin, flesh, without salt",
+    "baked sweet potato; without salt",
+
+  # Other ----------------------------------------------------------------------
+  "Miso",
+    "fermented soy paste; unique probiotic staple; high Lys from soy base"
+)
+
+# ── REMOVED — rationale (not code) ───────────────────────────────────────────
+#
+# Brand / restaurant items (~24 entries):
+#   RALSTON cereals, MALT-O-MEAL, LUNA BAR, POWER BAR, Burger King hash browns,
+#   Carrabba's / Olive Garden spaghetti, Denny's fries, Cracker Barrel fries.
+#   → Not consumer pantry staples.
+#
+# Junk food / snacks (~20 entries):
+#   Potato chips, corn chips, crackers (saltines, whole-wheat, cheese-filled),
+#   cookies (chocolate chip, sandwich), popcorn (microwave & air), pie, bagel chips,
+#   pita chips, SUNCHIPS.
+#   → Pass vegan filter (plant oils) but irrelevant for protein planning.
+#
+# Processed / prepared foods:
+#   Garlic bread, English muffins, bread crumbs, egg rolls (vegetable), tortillas
+#   (flour, refrigerated and shelf-stable), orange juice, refried beans (canned),
+#   baked beans (canned), dehydrated mashed potato (flakes and granules), pancake
+#   dry mixes, formulated nutrition bars.
+#   → Processed; serving context doesn't suit 100 g LP framework.
+#
+# Egg white products:
+#   "Egg, white, dried" and "Egg, white, raw, frozen, pasteurized".
+#   → Not vegan (passes cholesterol=0 filter but should be excluded).
+#
+# Baby food (2–3 entries):
+#   GERBER GRADUATES puffs, Babyfood cereal rice fortified, Babyfood mixed cereal.
+#   → Wrong audience; AA values may reflect fortification.
+#
+# Spices (10+ entries):
+#   Basil, chili powder, cinnamon, cloves, curry, garlic powder, ginger, mustard
+#   seed, onion powder, oregano, paprika, parsley, black pepper, poppy seed,
+#   turmeric.
+#   → Protein-dense per 100 g on paper but eaten in teaspoon quantities; including
+#     them makes LP solutions unrealistic.
+#
+# Condiments / sauces:
+#   Soy sauce (shoyu, low-sodium shoyu), mustard (prepared yellow), tomato paste.
+#   → Condiment quantities; not meaningful protein sources.
+#
+# Instant / precooked / enriched grain variants:
+#   "Rice, white, long-grain, precooked or instant, enriched, dry/prepared",
+#   "Rice, white, long-grain, parboiled, unenriched, cooked/dry",
+#   "Cereals, oats, instant, fortified, plain, prepared with water",
+#   "Cereals, corn grits, white, regular and quick, enriched, dry",
+#   "Cereals, farina, enriched, assorted brands including CREAM OF WHEAT".
+#   → Instant/precooked forms have similar AAs but are niche; fortified variants
+#     have inflated protein numbers from added vitamins.
+#
+# Duplicate wheat flour variants (kept only 11.5% unenriched):
+#   9%, 10%, 13%, 15% protein (enriched and unenriched) — same food, different
+#   protein specs for industrial bakeries. Consumer AP flour ≈ 11–12%.
+#   The 13% (bread flour) and 15% (high-gluten) are also removed; niche enough
+#   to add manually if a bread page needs them.
+#
+# Rye flour light and dark (kept only medium):
+#   Light rye lacks bran (lower protein, lower fiber), dark rye is bitter and
+#   niche. Medium is what most home bakers use.
+#
+# Duplicate nut preparations (kept only raw / plain dried):
+#   Almonds (blanched, dry roasted ±salt, oil roasted ±salt),
+#   Cashews (oil roasted ±salt),
+#   Hazelnuts (blanched, dry roasted),
+#   Macadamia (dry roasted),
+#   Pecans (dry roasted ±salt, oil roasted ±salt),
+#   Pistachios (dry roasted ±salt),
+#   Walnuts, black (dried) — kept English walnut instead.
+#   Almond butter, sunflower seed butter — kept whole-nut / whole-seed forms.
+#   Mixed nuts (various) — too variable to represent a single food.
+#   → Roasting has minimal effect on AAs. Salt is a preparation choice, not a
+#     nutritional one. Raw avoids any ambiguity.
+#
+# Salted / canned legume variants:
+#   Beans pinto (with salt, canned drained), kidney (canned ×4 variants),
+#   navy (with salt), beans baked (canned vegetarian).
+#   → Same nutrition as without-salt; canned adds sodium not relevant to LP.
+#
+# Duplicate corn variants:
+#   White sweet corn (cooked ±salt, canned), yellow corn (canned vacuum pack ×3,
+#   frozen on-cob ×4, frozen kernels ±salt, microwaved).
+#   → Kept raw and one cooked-without-salt; all others redundant.
+#
+# Asparagus with salt, broccoli with salt, kale with salt/frozen,
+# spinach with salt/frozen with salt, sweet potato with salt,
+# peas green (canned, with salt, frozen with salt):
+#   → Salted or canned duplicates of kept entries.
+#
+# Potatoes processed:
+#   French fries (oven, frozen, shoestring, crinkle, steak — all brands),
+#   hash browns (frozen pan-fried, home-prepared), red/Russet/white flesh baked.
+#   → Processed; skin-off variants give incomplete nutrition vs. flesh+skin kept.
+#
+# Duplicate peanut butter (kept smooth without salt):
+#   Chunk style with/without salt, smooth with salt, "Peanut Butter smooth
+#   (Includes foods for USDA's Food Distribution Program)".
+#   → Same food; without-salt smooth is the cleanest entry.
+#
+# Peanuts whole (kept PB):
+#   "Peanuts, all types, dry-roasted ±salt", "oil-roasted ±salt".
+#   → PB is the dominant consumer form; whole peanuts can be added manually.
+#
+# Miscellaneous:
+#   Alfalfa seeds sprouted raw — niche; minimal protein contribution.
+#   Dried fruits (apricots, dates, figs, prunes) — very low protein per 100 g
+#     once sugar content is accounted for; not meaningful for LP.
+#   Broccoli raab — less common; covered by regular broccoli.
+#   Brussels sprouts raw — marginal protein; no distinct AA advantage over kale.
+#   Lima beans (immature, frozen, ±salt) — similar profile to pinto/navy.
+#   Cream substitute powdered — not vegan in spirit (dairy-adjacent flavor).
+#   Restaurant spaghetti entries (Italian, Mexican rice) — not reproducible.
+#   Egg rolls vegetable frozen — processed, minor protein.
+
+# ── Filter fnf to kept descriptions ──────────────────────────────────────────
+fnf_curated <- fnf |>
+  filter(description %in% kept$description) |>
+  left_join(kept |> select(description, note), by = "description") |>
+  arrange(description)
+
+cat("Rows from fnf in curated list:", nrow(fnf_curated), "\n")
+
+# Verify all kept descriptions matched (catch typos)
+unmatched <- kept$description[!kept$description %in% fnf_curated$description]
+if (length(unmatched) > 0) {
+  cat("\n*** UNMATCHED descriptions (check spelling):\n")
+  walk(unmatched, ~ cat(" -", .x, "\n"))
+}
+```
+
+---
+
+## 5 — Special cases: plant foods with Lactose = NA
+
+Several plant foods fail the strict `Lactose == 0` filter because their lactose
+column is `NA` (data not recorded) rather than `0`. These are obviously dairy-free;
+we pull them directly from `fn_full` and document each one.
+
+```{r special_cases}
+
+# Each entry: fdc_id, reason Lactose = NA, brief note.
+special_ids <- tribble(
+  ~fdc_id,  ~note,
+
+  # Grains / flours
+  170687L,  "Buckwheat flour, whole-groat — Lactose NA; plant food, no dairy; protein 12.6 g, full AA panel; best dry flour for buckwheat pancakes / soba",
+
+  # Legumes — cooked
+  172421L,  "Lentils, mature seeds, cooked, boiled, without salt — Lactose NA; plant food; cooked counterpart to dry lentils kept in fnf_curated",
+
+  # Legumes — dry (additional variety)
+  174284L,  "Lentils, pink or red, raw — Lactose NA; plant food; higher protein (23.9 g) than green lentils; popular in South Asian dal and quick-cooking recipes",
+
+  # Protein supplement
+  173181L,  "Beverages, Protein powder soy based — Lactose NA; plant food; protein 55.6 g, Lys 3.55 g, Leu 4.60 g; useful as soy-based protein powder entry for supplement page",
+
+  # Grains added via USDA API (not present in food_update_log_entry.csv)
+  169702L,  "Millet, raw — dry millet; protein 11.0 g; full AA panel",
+  168871L,  "Millet, cooked — cooked millet; without salt",
+  169747L,  "Teff, uncooked — dry teff; protein 13.3 g; notably high Met; Ethiopian staple",
+  168918L,  "Teff, cooked — cooked teff; without salt",
+  169699L,  "Couscous, dry — semolina-based; dry form; similar AA profile to pasta",
+  169700L,  "Couscous, cooked — cooked couscous; without salt",
+  169716L,  "Sorghum grain — dry whole grain; gluten-free; protein 10.6 g"
+  # Black rice and red rice: no USDA SR Legacy entry — brown rice is the best proxy.
+)
+
+fnf_special <- fn_full |>
+  filter(fdc_id %in% special_ids$fdc_id) |>
+  left_join(special_ids, by = "fdc_id") |>
+  select(fdc_id, description, `Protein (g)`, `Lysine (g)`, `Leucine (g)`,
+         `Cholesterol (mg)`, `Lactose (g)`, note) |>
+  arrange(description)
+
+cat("Special-case rows:", nrow(fnf_special), "\n")
+print(fnf_special |> select(fdc_id, description, `Protein (g)`, note))
+```
+
+---
+
+## 6 — Combined final dataset
+
+```{r final}
+# Core columns for AA work (extend as needed)
+core_cols <- c("fdc_id", "description", "Protein (g)",
+               "Lysine (g)", "Leucine (g)", "Isoleucine (g)",
+               "Valine (g)", "Methionine (g)", "Cystine (g)",
+               "Phenylalanine (g)", "Tyrosine (g)",
+               "Threonine (g)", "Tryptophan (g)", "Histidine (g)",
+               "note")
+
+safe_select <- function(df) {
+  df |> select(any_of(core_cols))
+}
+
+fnf_final <- bind_rows(
+  fnf_curated  |> safe_select(),
+  fnf_special  |> safe_select()
+) |>
+  arrange(description)
+
+cat("\nFinal curated dataset:", nrow(fnf_final), "foods\n")
+View(fnf_final)
+```
+
+---
+
+## 7 — Chickpea cultivar note
+
+The LP uses USDA fdc 173757 (chickpeas cooked, from the Soy_Cube dataset via
+`build_foods.py`). A comparison with published cultivar data shows:
+
+| AA          | USDA % of protein | Desi NIFA-88 | Kabuli Hassan-2k |
+|-------------|:-----------------:|:------------:|:----------------:|
+| Lys         | 6.69              | 6.7 ✓        | 7.8              |
+| **Leu**     | **7.12**          | **8.2**      | **9.5**          |
+| Thr         | 3.71              | 2.7          | 3.5              |
+| Trp         | 0.96              | 0.6          | 1.1              |
+| Val         | 4.20              | 4.1 ✓        | 5.2              |
+| Met+Cys     | 2.65              | 1.2          | 2.1              |
+| Phe+Tyr     | 7.84              | 7.6 ✓        | 9.3              |
+
+US supermarket chickpeas are predominantly **Kabuli** (large, beige, round).
+However, the USDA SR Legacy entry likely reflects averaged assay data across
+available samples — not a single cultivar. Using USDA values as-is is the most
+defensible choice for a US-focused site. If Leu turns out to be a binding
+constraint in LP solutions, the USDA value (7.12%) may be slightly conservative.
+
+```{r chickpea_note, echo=FALSE}
+cat("Chickpea USDA fdc 173757 (cooked, from Soy_Cube dataset) retained as-is.\n")
+cat("Cultivar note added above for transparency.\n")
+```
