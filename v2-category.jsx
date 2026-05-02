@@ -184,7 +184,6 @@ function CategoryPage({ cfg }) {
           <div style={{ position: 'relative',
             padding: '24px 28px', background: V2.ink,
             borderRadius: 2, color: V2.paper,
-            transform: 'rotate(-0.2deg)',
             display: 'flex', justifyContent: 'space-between',
             alignItems: 'center' }}>
             <div>

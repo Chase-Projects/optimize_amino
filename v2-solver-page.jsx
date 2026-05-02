@@ -39,7 +39,7 @@ function SolverPage() {
           </div>
         </div>
 
-        <MiniTool initial={initial}/>
+        <MiniTool initial={initial} mode="solver"/>
 
         <div style={{ marginTop: 40, padding: '18px 22px',
           background: V2.stickerD, border: `1px dashed ${V2.ocean}`,

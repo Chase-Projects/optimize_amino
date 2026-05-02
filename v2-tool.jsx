@@ -149,7 +149,8 @@ const COMMON_FOODS = new Set([
   'pea_protein', 'soy_protein',
 ]);
 
-function PantryPicker({ selected, onToggle, preferDry, onPreferDryChange }) {
+function PantryPicker({ selected, fixed, onToggle, onAddFixed, onRemoveFixed, preferDry, onPreferDryChange, mode }) {
+  const isSolver = mode === 'solver';
   const [query, setQuery] = React.useState('');
   const [extTick, setExtTick] = React.useState(0);   // bumps on lazy-load
 
@@ -175,16 +176,23 @@ function PantryPicker({ selected, onToggle, preferDry, onPreferDryChange }) {
     byCat[f.cat].push(f);
   });
 
+  // Canonical pair key: pairs share a key regardless of which side carries
+  // the `pairId` field. Cooked variants typically have no pairId; their dry
+  // partner points at them. Resolve either side to the same key.
+  const pairKeyOf = f => {
+    if (f.pairId) return [f.id, f.pairId].sort().join('|');
+    const partner = FOODS.find(x => x.pairId === f.id);
+    return partner ? [f.id, partner.id].sort().join('|') : f.id;
+  };
+
   // For a chip, pick cooked/dry variant based on toggle when a pair exists.
   const preferredVariant = f => {
-    if (!f.pairId) return f;
-    if (preferDry && f.state !== 'dry') {
-      return FOODS.find(x => x.id === f.pairId && x.state === 'dry') || f;
-    }
-    if (!preferDry && f.state === 'dry') {
-      return FOODS.find(x => x.id === f.pairId && x.state !== 'dry') || f;
-    }
-    return f;
+    const partnerId = f.pairId || (FOODS.find(x => x.pairId === f.id) || {}).id;
+    if (!partnerId) return f;
+    const partner = FOODS.find(x => x.id === partnerId);
+    if (!partner) return f;
+    if (preferDry) return f.state === 'dry' ? f : (partner.state === 'dry' ? partner : f);
+    return f.state === 'dry' ? partner : f;
   };
 
   // Common food set, de-duped by pair (show one per pair — the preferred form).
@@ -194,11 +202,9 @@ function PantryPicker({ selected, onToggle, preferDry, onPreferDryChange }) {
     FOODS.forEach(raw => {
       if (raw.supplement) return;
       if (!COMMON_FOODS.has(raw.id) && !(raw.pairId && COMMON_FOODS.has(raw.pairId))) return;
-      const pairKey = raw.pairId
-        ? [raw.id, raw.pairId].sort().join('|')
-        : raw.id;
-      if (seenPairs.has(pairKey)) return;
-      seenPairs.add(pairKey);
+      const key = pairKeyOf(raw);
+      if (seenPairs.has(key)) return;
+      seenPairs.add(key);
       out.push(preferredVariant(raw));
     });
     return out;
@@ -211,20 +217,34 @@ function PantryPicker({ selected, onToggle, preferDry, onPreferDryChange }) {
   });
 
   // Search results: core FOODS + lazily-loaded extended rows.
+  // Includes ALL non-supplement foods regardless of `scalable` — every food
+  // can be added as a pantry (LP) variable or as a fixed per-serving entry.
   // De-duped by id so extended can't shadow core entries.
   const q = query.trim().toLowerCase();
-  const coreHits = q ? FOODS.filter(f =>
-    !f.supplement && f.scalable !== false &&
-    (f.name.toLowerCase().includes(q) || f.cat.toLowerCase().includes(q))
-  ) : [];
+  const matches = f => !!f && !f.supplement &&
+    (isSolver || f.tag !== 'macro') &&
+    (((f.name || '').toLowerCase().includes(q)) ||
+     ((f.cat  || '').toLowerCase().includes(q)));
+  const coreHits = q ? FOODS.filter(matches) : [];
   const ext = window.FOODS_EXTENDED || [];
   const seenIds = new Set(coreHits.map(f => f.id));
-  const extHits = q ? ext.filter(f =>
-    !seenIds.has(f.id) && f.supplement !== true && f.scalable !== false &&
-    ((f.name || '').toLowerCase().includes(q) ||
-     (f.cat  || '').toLowerCase().includes(q))
-  ) : [];
-  const results = [...coreHits, ...extHits].slice(0, 20);
+  const extHits = q ? ext.filter(f => !seenIds.has(f.id) && matches(f)) : [];
+  const allHits = [...coreHits, ...extHits];
+
+  // Group results by category, preserving CATEGORIES display order.
+  // Unknown cats fall through to a trailing "Other" bucket.
+  const resultsByCat = (() => {
+    const byCat = {};
+    allHits.forEach(f => { (byCat[f.cat] = byCat[f.cat] || []).push(f); });
+    const ordered = CATEGORIES.filter(c => c !== 'Supplement' && byCat[c])
+      .map(c => [c, byCat[c]]);
+    const knownSet = new Set(CATEGORIES);
+    Object.entries(byCat).forEach(([c, list]) => {
+      if (!knownSet.has(c)) ordered.push([c, list]);
+    });
+    return ordered;
+  })();
+  const totalHits = allHits.length;
 
   return (
     <div style={{ marginBottom: 18 }}>
@@ -324,35 +344,90 @@ function PantryPicker({ selected, onToggle, preferDry, onPreferDryChange }) {
           style={{ width: '100%', padding: '7px 10px', fontFamily: V2.font,
             fontSize: 13, border: `1.5px solid ${V2.rule}`, borderRadius: 3,
             background: '#fff', boxSizing: 'border-box' }}/>
-        {results.length > 0 && (
-          <div style={{ marginTop: 8, maxHeight: 180, overflowY: 'auto',
-            display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {results.map(f => (
-              <button key={f.id} onClick={() => onToggle(f.id)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '6px 10px', background: selected.has(f.id)
-                    ? V2.stickerC : '#fff',
-                  border: `1px solid ${V2.rule}`, borderRadius: 3,
-                  fontFamily: V2.font, fontSize: 13, cursor: 'pointer',
-                  textAlign: 'left' }}>
-                <span style={{ fontSize: 16 }}>{f.emoji}</span>
-                <span style={{ fontWeight: 600, flex: 1 }}>{f.name}</span>
-                <span style={{ fontFamily: V2.mono, fontSize: 11,
-                  color: V2.mute }}>
-                  {f.cat}{f.state ? ` · ${f.state}` : ''}
-                </span>
-                <span style={{ fontFamily: V2.mono, fontSize: 11,
-                  color: V2.mute }}>
-                  ${f.cost.toFixed(2)}/100g
-                </span>
-                {selected.has(f.id) && (
-                  <span style={{ color: V2.sage, fontWeight: 700 }}>✓</span>
-                )}
-              </button>
-            ))}
+        {totalHits > 0 && (
+          <div style={{ marginTop: 8, maxHeight: 280, overflowY: 'auto',
+            background: '#fff', border: `1px solid ${V2.rule}`, borderRadius: 3,
+            position: 'relative' }}>
+            {resultsByCat.map(([cat, list]) => {
+              const tone = (typeof CAT_TONE !== 'undefined' && CAT_TONE[cat]) || null;
+              return (
+                <div key={cat}>
+                  <div style={{ position: 'sticky', top: 0, zIndex: 1,
+                    padding: '4px 10px', fontFamily: V2.mono, fontSize: 10,
+                    letterSpacing: 1.4, textTransform: 'uppercase',
+                    color: tone ? tone.ink : V2.mute2,
+                    background: tone ? tone.tint : V2.stickerA,
+                    borderBottom: `1px solid ${V2.rule}`, fontWeight: 700 }}>
+                    {cat}
+                    <span style={{ marginLeft: 8, fontWeight: 500,
+                      letterSpacing: 0, textTransform: 'none', opacity: 0.7 }}>
+                      {list.length}
+                    </span>
+                  </div>
+                  {list.map(f => {
+                    const isPantry = selected.has(f.id);
+                    const isFixed  = fixed && fixed.has(f.id);
+                    const canScale = f.scalable !== false;
+                    return (
+                      <div key={f.id}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10,
+                          padding: '6px 10px',
+                          background: (isPantry || isFixed) ? V2.stickerA : '#fff',
+                          borderBottom: `1px solid ${V2.rule}`,
+                          fontFamily: V2.font, fontSize: 13 }}>
+                        <span style={{ fontSize: 16 }}>{f.emoji}</span>
+                        <span style={{ fontWeight: 600, flex: 1 }}>
+                          {f.name}
+                          {!canScale && (
+                            <span style={{ marginLeft: 6, fontFamily: V2.mono,
+                              fontSize: 9, letterSpacing: 0.6,
+                              textTransform: 'uppercase', color: V2.plum,
+                              border: `1px solid ${V2.plum}`, padding: '0 4px',
+                              borderRadius: 2 }}>
+                              per serving
+                            </span>
+                          )}
+                        </span>
+                        <span style={{ fontFamily: V2.mono, fontSize: 11,
+                          color: V2.mute }}>
+                          ${(f.cost || 0).toFixed(2)}/100g
+                        </span>
+                        <button onClick={() => onToggle(f.id)}
+                          disabled={!canScale}
+                          title={canScale ? 'Add to pantry (LP variable)' :
+                            'This food is per-serving only'}
+                          style={{ padding: '4px 8px', fontSize: 11,
+                            fontFamily: V2.mono, fontWeight: 700,
+                            background: isPantry ? V2.sage : '#fff',
+                            color: isPantry ? '#fff' :
+                              (canScale ? V2.ink : V2.mute),
+                            border: `1px solid ${isPantry ? V2.sage : V2.rule}`,
+                            borderRadius: 3, cursor: canScale ? 'pointer' : 'not-allowed',
+                            opacity: canScale ? 1 : 0.45 }}>
+                          {isPantry ? '✓ pantry' : '+ pantry'}
+                        </button>
+                        <button onClick={() => {
+                          if (isFixed) onRemoveFixed && onRemoveFixed(f.id);
+                          else onAddFixed && onAddFixed(f.id);
+                        }}
+                          title="Add as a fixed serving (subtracted from targets)"
+                          style={{ padding: '4px 8px', fontSize: 11,
+                            fontFamily: V2.mono, fontWeight: 700,
+                            background: isFixed ? V2.plum : '#fff',
+                            color: isFixed ? '#fff' : V2.ink,
+                            border: `1px solid ${isFixed ? V2.plum : V2.rule}`,
+                            borderRadius: 3, cursor: 'pointer' }}>
+                          {isFixed ? '✓ fixed' : '+ fixed'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </div>
         )}
-        {query && !results.length && (
+        {query && !totalHits && (
           <div style={{ fontSize: 12, color: V2.mute, marginTop: 8,
             fontStyle: 'italic' }}>
             no matches.
@@ -363,7 +438,91 @@ function PantryPicker({ selected, onToggle, preferDry, onPreferDryChange }) {
   );
 }
 
-function MiniTool({ initial }) {
+// Macro constraints panel — solver-page only. Toggle adds kcal/fat/carbs
+// /fiber/protein bounds to the LP; "Use pattern defaults" prefills from
+// the active pattern's macros table. Empty fields are ignored.
+function MacroConstraintsPanel({ on, setOn, macros, setMacros, pattern }) {
+  const defaults = (PATTERNS[pattern] && PATTERNS[pattern].macros) || null;
+  const fields = [
+    { axis: 'Calories',  unit: 'kcal', minK: 'kcalMin',    maxK: 'kcalMax' },
+    { axis: 'Fat',       unit: 'g',    minK: 'fatMin',     maxK: 'fatMax' },
+    { axis: 'Carbs',     unit: 'g',    minK: 'carbsMin',   maxK: 'carbsMax' },
+    { axis: 'Fiber',     unit: 'g',    minK: 'fiberMin',   maxK: null },
+    { axis: 'Protein',   unit: 'g',    minK: null,         maxK: 'proteinMax' },
+  ];
+  const update = (k, v) => setMacros({ ...macros, [k]: v });
+  const usePatternDefaults = () => {
+    if (!defaults) return;
+    setMacros(Object.fromEntries(Object.entries(defaults).map(([k, v]) => [k, String(v)])));
+  };
+  return (
+    <div style={{ marginBottom: 18, padding: '12px 14px',
+      background: 'rgba(74, 106, 130, 0.05)',
+      border: `1px dashed ${V2.ocean}`, borderRadius: 2 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between',
+        alignItems: 'center', marginBottom: on ? 10 : 0 }}>
+        <label style={{ fontSize: 13, fontWeight: 700, color: V2.ocean,
+          display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+          <input type="checkbox" checked={on}
+            onChange={e => setOn(e.target.checked)}
+            style={{ marginRight: 8 }} />
+          Macro constraints
+          <span style={{ color: V2.mute, fontWeight: 500, fontSize: 12,
+            marginLeft: 6 }}>(kcal · fat · carbs · fiber · protein cap)</span>
+          <InfoDot tip="When on, the LP must hit the per-day macro bounds you specify in addition to the AA targets. Empty fields are ignored. Olive oil / MCT / sugar / psyllium husk are good feasibility-fillers." />
+        </label>
+        {on && (
+          <button onClick={usePatternDefaults}
+            disabled={!defaults}
+            style={{ padding: '4px 10px', fontSize: 11, fontFamily: V2.mono,
+              fontWeight: 700, background: '#fff',
+              color: defaults ? V2.ocean : V2.mute,
+              border: `1px solid ${defaults ? V2.ocean : V2.rule}`,
+              borderRadius: 3, cursor: defaults ? 'pointer' : 'not-allowed' }}>
+            use pattern defaults
+          </button>
+        )}
+      </div>
+      {on && (
+        <div style={{ display: 'grid',
+          gridTemplateColumns: '90px 1fr 1fr 50px',
+          gap: '6px 12px', alignItems: 'center', fontSize: 12 }}>
+          <div></div>
+          <div style={{ fontFamily: V2.mono, fontSize: 10, color: V2.mute2,
+            textTransform: 'uppercase', letterSpacing: 1 }}>min</div>
+          <div style={{ fontFamily: V2.mono, fontSize: 10, color: V2.mute2,
+            textTransform: 'uppercase', letterSpacing: 1 }}>max</div>
+          <div></div>
+          {fields.map(({ axis, unit, minK, maxK }) => (
+            <React.Fragment key={axis}>
+              <div style={{ fontWeight: 600 }}>{axis}</div>
+              <input type="number" placeholder={minK ? '—' : 'n/a'}
+                disabled={!minK}
+                value={minK ? (macros[minK] ?? '') : ''}
+                onChange={e => minK && update(minK, e.target.value)}
+                style={{ padding: '5px 8px', fontFamily: V2.mono, fontSize: 12,
+                  border: `1px solid ${V2.rule}`, borderRadius: 3,
+                  background: minK ? '#fff' : 'rgba(0,0,0,0.04)' }}/>
+              <input type="number" placeholder={maxK ? '—' : 'n/a'}
+                disabled={!maxK}
+                value={maxK ? (macros[maxK] ?? '') : ''}
+                onChange={e => maxK && update(maxK, e.target.value)}
+                style={{ padding: '5px 8px', fontFamily: V2.mono, fontSize: 12,
+                  border: `1px solid ${V2.rule}`, borderRadius: 3,
+                  background: maxK ? '#fff' : 'rgba(0,0,0,0.04)' }}/>
+              <div style={{ fontFamily: V2.mono, fontSize: 11, color: V2.mute }}>
+                {unit}
+              </div>
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MiniTool({ initial, mode }) {
+  const isSolver = mode === 'solver';
   const [pattern, setPattern] = React.useState(initial?.pattern || DEFAULT_PATTERN);
   const [selected, setSelected] = React.useState(
     new Set(initial?.pantry || ['rice', 'beans', 'tofu', 'oats']));
@@ -378,6 +537,10 @@ function MiniTool({ initial }) {
     proteinOverrideMode: 'rda', proteinG: 52,
     multiplier: 10,
   });
+  // Macro constraints — solver-only. Off by default; "Use pattern defaults"
+  // pre-fills from the active pattern's `macros` table. Empty string = unset.
+  const [macroOn, setMacroOn] = React.useState(false);
+  const [macros, setMacros] = React.useState({});
   const [result, setResult] = React.useState(null);
   const [solving, setSolving] = React.useState(false);
 
@@ -445,6 +608,12 @@ function MiniTool({ initial }) {
     setSolving(true);
     setResult(null);
     setTimeout(() => {
+      // Filter out empty/blank macro fields before passing to LP.
+      const activeMacros = (isSolver && macroOn)
+        ? Object.fromEntries(Object.entries(macros).filter(
+            ([_, v]) => v !== '' && v != null && !Number.isNaN(+v)
+          ).map(([k, v]) => [k, +v]))
+        : null;
       const r = mockSolve({
         pantryIds: [...selected],
         fixedIds: [...fixed],
@@ -452,6 +621,7 @@ function MiniTool({ initial }) {
         extras: [...extras],
         supplementMultiplier: body.multiplier,
         opts: buildOpts(),
+        macros: activeMacros,
       });
       setResult(r);
       setSolving(false);
@@ -501,8 +671,27 @@ function MiniTool({ initial }) {
         </div>
 
         {/* Pantry picker (common chips + dry/cooked toggle + search) */}
-        <PantryPicker selected={selected}
-          onToggle={togglePaired(selected, setSelected)}
+        <PantryPicker
+          mode={mode}
+          selected={selected}
+          fixed={fixed}
+          onToggle={id => {
+            // Adding to pantry should remove from fixed (mutually exclusive).
+            if (fixed.has(id)) {
+              const next = new Set(fixed); next.delete(id); setFixed(next);
+            }
+            togglePaired(selected, setSelected)(id);
+          }}
+          onAddFixed={id => {
+            // Adding as fixed should remove from pantry (mutually exclusive).
+            if (selected.has(id)) {
+              const next = new Set(selected); next.delete(id); setSelected(next);
+            }
+            const next = new Set(fixed); next.add(id); setFixed(next);
+          }}
+          onRemoveFixed={id => {
+            const next = new Set(fixed); next.delete(id); setFixed(next);
+          }}
           preferDry={preferDry} onPreferDryChange={setPreferDry}/>
 
         {/* fixed foods */}
@@ -526,15 +715,28 @@ function MiniTool({ initial }) {
             </span>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {CATEGORIES.filter(c => c.startsWith('Fixed')).flatMap(cat =>
-              (byCat[cat] || []).map(f => (
-                <FoodChip key={f.id} food={f}
-                  grams={fixed.has(f.id) ? f.serving : null}
-                  selected={fixed.has(f.id)}
-                  onClick={() => toggle(fixed, setFixed)(f.id)} />
-              )))}
+            {[...fixed].map(id => foodById(id)).filter(Boolean).map(f => (
+              <FoodChip key={f.id} food={f}
+                grams={f.serving}
+                selected={true}
+                onClick={() => toggle(fixed, setFixed)(f.id)} />
+            ))}
+            {fixed.size === 0 && (
+              <span style={{ fontSize: 12, color: V2.mute, fontStyle: 'italic' }}>
+                Add fixed servings via the search box above.
+              </span>
+            )}
           </div>
         </div>
+
+        {/* macro constraints — solver page only */}
+        {isSolver && (
+          <MacroConstraintsPanel
+            on={macroOn} setOn={setMacroOn}
+            macros={macros} setMacros={setMacros}
+            pattern={pattern}
+          />
+        )}
 
         {/* extra constraints */}
         <div style={{ marginBottom: 22 }}>
@@ -690,16 +892,10 @@ async function downloadReceiptCSV(result) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// Receipt — B2 (Nutrition-Label) design.
+// Replaces the older thermal receipt. Same data, completely different chrome.
 function Receipt({ result }) {
-  const [printed, setPrinted] = React.useState(0);
   const [csvBusy, setCsvBusy] = React.useState(false);
-  React.useEffect(() => {
-    setPrinted(0);
-    const id = setInterval(() => {
-      setPrinted(p => p >= 1 ? 1 : Math.min(1, p + 0.06));
-    }, 40);
-    return () => clearInterval(id);
-  }, [result]);
 
   const onDownload = async () => {
     if (csvBusy) return;
@@ -718,150 +914,193 @@ function Receipt({ result }) {
     .filter(it => it.food && it.grams > 0.05)
     .sort((a, b) => b.grams - a.grams);
 
-  const h = printed * (780 + suppItems.length * 16);
+  const allItems = [
+    ...items.map(it => ({ ...it, kind: 'food' })),
+    ...suppItems.map(it => ({ ...it, kind: 'supp' })),
+  ];
+
+  const ink = '#000', mute = '#555';
+  const greenOK = '#5e8a4a', tomato = '#c94b34', plum = '#7a4a5a';
+  const dashRule = '1px dashed #b8b8b8';
+  const blackRule = `4px solid ${ink}`;
+  const totalMass = Math.round(result.mass || 0);
+  const limKey = result.limiting.key;
+  const catFor = (food) => food.supplement
+    ? 'Supplement'
+    : (food.scalable === false ? 'Fixed' : food.cat);
+
   return (
-    <div style={{ position: 'relative', marginTop: 24,
-      display: 'flex', justifyContent: 'center' }}>
-      <div style={{ position: 'absolute', top: -4, left: '50%',
-        transform: 'translateX(-50%)',
-        width: 340, height: 10, background: V2.ink,
-        borderRadius: 2, zIndex: 3,
-        boxShadow: '0 2px 6px rgba(0,0,0,0.15) inset' }}/>
-      <div style={{ width: 340, overflow: 'hidden',
-        maxHeight: h, transition: 'max-height .06s linear',
-        background: '#fffdf5',
-        boxShadow: '0 2px 2px rgba(0,0,0,0.06), 0 8px 22px rgba(60,40,20,0.18)',
-        fontFamily: V2.mono, fontSize: 11, color: V2.ink,
-        padding: '20px 22px 0',
-        position: 'relative' }}>
-        <div style={{ textAlign: 'center', borderBottom: `1px dashed ${V2.rule}`,
-          paddingBottom: 10, marginBottom: 12 }}>
-          <div style={{ fontFamily: V2.font, fontWeight: 800, fontSize: 15,
-            letterSpacing: 1 }}>
-            OPTIMIZE AMINO
-          </div>
-          <div style={{ color: V2.mute }}>solver receipt · {new Date().toLocaleDateString()}</div>
-          <div style={{ color: V2.mute }}>pattern: {PATTERNS[result.pattern].label}</div>
+    <div style={{ marginTop: 24, display: 'flex', justifyContent: 'center' }}>
+      <div style={{ width: 380, background: '#fff', color: ink,
+        fontFamily: '"Helvetica Neue", Helvetica, Arial, sans-serif',
+        padding: '14px 16px', border: `2px solid ${ink}`,
+        boxShadow: '0 6px 22px rgba(0,0,0,0.10)' }}>
+
+        <div style={{ fontWeight: 900, fontSize: 28, letterSpacing: -0.5,
+          lineHeight: 1, borderBottom: `8px solid ${ink}`, paddingBottom: 4 }}>
+          Solver Facts
         </div>
 
-        {items.map(it => (
-          <div key={it.food.id} style={{ display: 'flex',
-            justifyContent: 'space-between', padding: '2px 0' }}>
-            <span>{it.food.emoji}&nbsp;{it.food.name.toUpperCase()}</span>
-            <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {it.grams} g  &nbsp; ${((it.food.cost * it.grams) / 100).toFixed(2)}
-            </span>
-          </div>
-        ))}
-
-        {/* Supplements block — only when LP had to reach for them */}
-        {suppItems.length > 0 && (
-          <>
-            <div style={{ borderTop: `1px dashed ${V2.rule}`,
-              margin: '8px 0 4px', paddingTop: 6, fontSize: 10,
-              color: V2.tomato, letterSpacing: 1 }}>
-              SHORTFALL · SUPPLEMENTS
-            </div>
-            {suppItems.map(it => (
-              <div key={it.food.id} style={{ display: 'flex',
-                justifyContent: 'space-between', padding: '2px 0',
-                color: V2.tomato }}>
-                <span>{it.food.emoji}&nbsp;{it.food.name.toUpperCase()}</span>
-                <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-                  {it.grams.toFixed(1)} g  &nbsp; ${((it.food.cost *
-                    (result.supplementMultiplier || 1) * it.grams) / 100).toFixed(2)}
-                </span>
-              </div>
-            ))}
-            <div style={{ fontSize: 9, color: V2.mute, marginTop: 2,
-              fontStyle: 'italic' }}>
-              pantry couldn't cover these AAs; add a high-{suppItems[0].food.aaKey}
-              {' '}food to replace.
-            </div>
-          </>
-        )}
-
-        <div style={{ borderTop: `1px dashed ${V2.rule}`, margin: '10px 0',
-          paddingTop: 8, display: 'flex', justifyContent: 'space-between',
-          fontWeight: 700 }}>
-          <span>TOTAL</span>
+        {/* Pattern + total grams */}
+        <div style={{ display: 'flex', justifyContent: 'space-between',
+          fontSize: 11, padding: '4px 0', borderBottom: `1px solid ${ink}` }}>
+          <span>pattern: <b>{PATTERNS[result.pattern].label}</b></span>
           <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {totalMass}<b style={{ fontSize: 11, marginLeft: 2 }}>g</b>
+          </span>
+        </div>
+
+        {/* Daily cost */}
+        <div style={{ display: 'flex', justifyContent: 'space-between',
+          alignItems: 'baseline', padding: '8px 0', borderBottom: blackRule }}>
+          <span style={{ fontWeight: 800, fontSize: 14 }}>Daily cost</span>
+          <span style={{ fontWeight: 900, fontSize: 30, letterSpacing: -0.5,
+            fontVariantNumeric: 'tabular-nums' }}>
             ${result.cost.toFixed(2)}
           </span>
         </div>
-        <div style={{ borderTop: `1px dashed ${V2.rule}`, margin: '8px 0 6px',
-          paddingTop: 6, fontSize: 10, color: V2.mute, letterSpacing: 1 }}>
-          MACROS
-        </div>
-        <MacroLine label="energy"  value={`${Math.round(result.kcal || 0)} kcal`} />
-        <MacroLine label="protein" value={`${(result.protein||0).toFixed(1)} g`} />
-        <MacroLine label="carbs"   value={`${(result.carbs  ||0).toFixed(1)} g`} />
-        <MacroLine label="fiber"   value={`${(result.fiber  ||0).toFixed(1)} g`} />
-        <MacroLine label="fat"     value={`${(result.fat    ||0).toFixed(1)} g`} />
-        <MacroLine label="mass"    value={`${Math.round(result.mass || 0)} g`} />
+
+        {/* Ingredients */}
         <div style={{ display: 'flex', justifyContent: 'space-between',
-          color: V2.mute, padding: '2px 0' }}>
-          <span>limiting AA</span>
-          <span>{result.limiting.key} · {Math.round(result.coverage[result.limiting.key]*100)}%</span>
+          alignItems: 'baseline', padding: '6px 0',
+          borderBottom: `1px solid ${ink}` }}>
+          <span style={{ fontWeight: 800, fontSize: 13 }}>Ingredients</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: mute,
+            letterSpacing: 0.5 }}>cost</span>
         </div>
+        {allItems.map((it, i) => {
+          const isSupp = it.kind === 'supp';
+          const dollars = isSupp
+            ? (it.food.cost * (result.supplementMultiplier || 1) * it.grams) / 100
+            : (it.food.cost * it.grams) / 100;
+          const last = i === allItems.length - 1;
+          const cat = catFor(it.food);
+          const tone = (window.CAT_TONE && window.CAT_TONE[cat]) || { tint: '#eee', solid: '#999' };
+          return (
+            <div key={it.food.id} style={{ display: 'grid',
+              gridTemplateColumns: '20px 1fr auto auto', gap: 8,
+              padding: '5px 0',
+              borderBottom: last ? 'none' : dashRule,
+              alignItems: 'center', fontSize: 13,
+              color: isSupp ? plum : ink }}>
+              <span style={{ width: 16, height: 16, borderRadius: '50%',
+                background: tone.tint,
+                border: `1.5px solid ${tone.solid}`, display: 'inline-block' }}/>
+              <span style={{ fontWeight: 700 }}>
+                {it.food.name}{isSupp && it.food.aaKey ? ` · ${it.food.aaKey}` : ''}
+              </span>
+              <span style={{ fontVariantNumeric: 'tabular-nums',
+                fontWeight: 500, color: isSupp ? plum : '#333' }}>
+                {isSupp ? it.grams.toFixed(1) : it.grams}
+                <b style={{ fontSize: 11, marginLeft: 2 }}>g</b>
+              </span>
+              <span style={{ fontVariantNumeric: 'tabular-nums',
+                fontWeight: 800, minWidth: 48, textAlign: 'right' }}>
+                {dollars.toFixed(2)}
+              </span>
+            </div>
+          );
+        })}
+
+        {/* Macros */}
+        <div style={{ borderTop: blackRule, marginTop: 6, paddingTop: 6 }}>
+          <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 4 }}>
+            Macros
+          </div>
+          <NfMacroLine bold label="Calories" v={Math.round(result.kcal || 0)} u="kcal"/>
+          <NfMacroLine bold label="Protein"  v={(result.protein || 0).toFixed(1)} u="g"/>
+          <NfMacroLine      label="Carbs"    v={(result.carbs   || 0).toFixed(1)} u="g"/>
+          <NfMacroLine      label="Fat"      v={(result.fat     || 0).toFixed(1)} u="g" last/>
+        </div>
+
+        {/* Amino acids */}
+        <div style={{ borderTop: blackRule, marginTop: 8, paddingTop: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between',
+            alignItems: 'baseline', marginBottom: 6 }}>
+            <span style={{ fontWeight: 800, fontSize: 13 }}>Amino acids</span>
+            <span style={{ fontSize: 11, color: mute }}>
+              limiting · <b style={{ color: tomato }}>{limKey}</b>
+            </span>
+          </div>
+          {EAA.map((a, i) => {
+            const c  = result.coverage[a.key];
+            const t  = result.targets ? result.targets[a.key] : 0;
+            const ft = result.foodAminoTotals ? result.foodAminoTotals[a.key] : null;
+            const fc = (t > 0 && ft != null) ? Math.min(ft / t, 1.6) : Math.min(c, 1.6);
+            const isLim = a.key === limKey;
+            const last = i === EAA.length - 1;
+            return (
+              <div key={a.key} style={{ display: 'grid',
+                gridTemplateColumns: '90px 1fr 56px', gap: 8,
+                padding: '4px 0',
+                borderBottom: last ? 'none' : dashRule,
+                alignItems: 'center', fontSize: 12 }}>
+                <span style={{ fontWeight: 500,
+                  color: isLim ? tomato : ink }}>{a.full}</span>
+                <div style={{ height: 10, background: '#eee',
+                  position: 'relative', overflow: 'visible' }}>
+                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0,
+                    width: `${(fc / 1.6) * 100}%`,
+                    background: isLim ? tomato : greenOK,
+                    borderTopLeftRadius: 5, borderBottomLeftRadius: 5 }}/>
+                  <div style={{ position: 'absolute', top: 0, bottom: 0,
+                    left: `${(fc / 1.6) * 100}%`,
+                    width: `${Math.max(0,(Math.min(c, 1.6) - fc) / 1.6) * 100}%`,
+                    background: plum,
+                    borderTopRightRadius: 5, borderBottomRightRadius: 5 }}/>
+                  <div style={{ position: 'absolute', top: -3, bottom: -3,
+                    left: `${(1/1.6)*100}%`,
+                    borderLeft: `1px dashed ${ink}` }}/>
+                </div>
+                <span style={{ textAlign: 'right', fontWeight: 500,
+                  fontVariantNumeric: 'tabular-nums',
+                  color: isLim ? tomato : ink, fontSize: 13 }}>
+                  {Math.round(c * 100)}%
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
         {result.status && result.status !== 'optimal' && (
-          <div style={{ color: V2.tomato, fontSize: 10, marginTop: 4,
+          <div style={{ color: tomato, fontSize: 10, marginTop: 6,
             textTransform: 'uppercase', letterSpacing: 1 }}>
             solver: {result.status}
           </div>
         )}
 
-        <div style={{ borderTop: `1px dashed ${V2.rule}`, margin: '10px 0',
-          paddingTop: 10 }}>
-          <div style={{ fontSize: 10, color: V2.mute, letterSpacing: 1,
-            marginBottom: 6, display: 'flex', alignItems: 'center',
-            justifyContent: 'space-between', gap: 10 }}>
-            <span>AMINO COVERAGE</span>
-            {Object.keys(result.supplements || {}).length > 0 && (
-              <span style={{ display: 'inline-flex', alignItems: 'center',
-                gap: 6, textTransform: 'none', letterSpacing: 0 }}>
-                <span style={{ width: 10, height: 10, background: V2.plum,
-                  opacity: 0.85, display: 'inline-block' }}/>
-                <span style={{ color: V2.mute, fontFamily: V2.mono,
-                  fontSize: 10 }}>= filled by supplement</span>
-              </span>
-            )}
-          </div>
-          <AminoBars coverage={result.coverage} limiting={result.limiting}
-            targets={result.targets} totals={result.aminoTotals}
-            foodTotals={result.foodAminoTotals} compact/>
-        </div>
-
+        {/* Download */}
         <div style={{ display: 'flex', justifyContent: 'center',
-          margin: '10px 0 6px' }}>
+          margin: '12px 0 2px' }}>
           <button onClick={onDownload} disabled={csvBusy}
-            style={{ padding: '7px 14px', background: '#fff',
-              border: `1.5px solid ${V2.ink}`, borderRadius: 3,
+            style={{ padding: '8px 16px', background: '#fff',
+              border: `1.5px solid ${ink}`, borderRadius: 3,
               fontFamily: V2.mono, fontSize: 11, fontWeight: 700,
-              letterSpacing: 1, color: V2.ink, cursor: csvBusy ? 'wait' : 'pointer',
+              letterSpacing: 1, color: ink,
+              cursor: csvBusy ? 'wait' : 'pointer',
               textTransform: 'uppercase' }}>
             {csvBusy ? 'building…' : '↓ download full receipt · csv'}
           </button>
         </div>
-        <div style={{ textAlign: 'center', fontSize: 9, color: V2.mute,
-          fontStyle: 'italic', marginBottom: 4 }}>
-          full AA panel + micros from the extended dataset
-        </div>
-
-        <div style={{ height: 12, marginTop: 14,
-          background: `linear-gradient(135deg, transparent 48%, #fffdf5 50%) bottom/8px 12px repeat-x,
-                       linear-gradient(-135deg, transparent 48%, #fffdf5 50%) bottom/8px 12px repeat-x` }}/>
-        <div style={{ marginTop: -12, height: 12,
-          backgroundImage: 'linear-gradient(135deg, #fffdf5 48%, transparent 52%), linear-gradient(225deg, #fffdf5 48%, transparent 52%)',
-          backgroundSize: '16px 12px',
-          backgroundRepeat: 'repeat-x',
-          backgroundPosition: '0 0, 8px 0',
-        }}/>
-        <div style={{ textAlign: 'center', fontFamily: V2.hand,
-          color: V2.mute, fontSize: 16, padding: '4px 0 16px' }}>
-          thanks for optimizing ✂︎
-        </div>
       </div>
+    </div>
+  );
+}
+
+function NfMacroLine({ label, v, u, bold, last }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between',
+      alignItems: 'baseline', padding: '3px 0',
+      borderBottom: last ? 'none' : '1px dashed #b8b8b8' }}>
+      <span style={{ fontWeight: bold ? 800 : 500, fontSize: 13 }}>
+        {label}
+      </span>
+      <span>
+        <span style={{ fontVariantNumeric: 'tabular-nums',
+          fontWeight: 500, fontSize: 14 }}>{v}</span>
+        <span style={{ fontWeight: 500, fontSize: 12,
+          marginLeft: 2, color: '#222' }}>{u}</span>
+      </span>
     </div>
   );
 }

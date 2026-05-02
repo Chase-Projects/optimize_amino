@@ -41,34 +41,65 @@ const _AVG_V = (() => {
   return out;
 })();
 
+// Macro recommendations per pattern (daily totals, ~65 kg adult). Used by
+// the solver page when the user opts into macro constraints. Edit these
+// when better source numbers are nailed down. Min/max are *per day*; the
+// solver scales by `mealFraction` like the AA targets.
+const _ADULT_MACROS = {
+  kcalMin: 1800, kcalMax: 2400,
+  fatMin: 50,   fatMax: 80,
+  carbsMin: 225, carbsMax: 325,
+  fiberMin: 25,
+  proteinMax: 130,
+};
+const _ATHLETE_MACROS = {
+  kcalMin: 2400, kcalMax: 3200,
+  fatMin: 60,   fatMax: 110,
+  carbsMin: 300, carbsMax: 450,
+  fiberMin: 30,
+  proteinMax: 200,
+};
+const _MILK_MACROS = {
+  kcalMin: 1800, kcalMax: 2400,
+  fatMin: 70,   fatMax: 100,
+  carbsMin: 200, carbsMax: 300,
+  fiberMin: 25,
+  proteinMax: 130,
+};
+
 const PATTERNS = {
   avg:     { label: 'Average (FAO + NAM + NAN)', short: 'Average',
              note: 'Mean of the three adult-maintenance patterns — the site default.',
-             v: _AVG_V },
+             v: _AVG_V, macros: _ADULT_MACROS },
   fao:     { label: 'FAO/WHO/UNU 2007',   short: 'FAO/WHO',
              note: 'Adult maintenance, the standard international scoring pattern.',
-             v: _FAO_V },
+             v: _FAO_V, macros: _ADULT_MACROS },
   nam:     { label: 'NAM / IOM DRI 2005', short: 'NAM',
              note: 'U.S. National Academy of Medicine adult requirement.',
-             v: _NAM_V },
+             v: _NAM_V, macros: _ADULT_MACROS },
   nan:     { label: 'Nordic (NNR) 2023',  short: 'Nordic',
              note: 'Nordic Nutrition Recommendations.',
-             v: _NAN_V },
+             v: _NAN_V, macros: _ADULT_MACROS },
   milk:    { label: 'Breast milk',        short: 'Milk',
              note: 'Human milk AA composition.',
-             v: { His: 26, Ile: 55, Leu: 96, Lys: 69, Met: 33, Phe: 90, Thr: 44, Trp: 17, Val: 55 } },
+             v: { His: 26, Ile: 55, Leu: 96, Lys: 69, Met: 33, Phe: 90, Thr: 44, Trp: 17, Val: 55 },
+             macros: _MILK_MACROS },
   egg:     { label: 'Whole egg',          short: 'Egg',
              note: 'Gold standard biological value.',
-             v: { His: 24, Ile: 55, Leu: 86, Lys: 70, Met: 57, Phe: 97, Thr: 47, Trp: 15, Val: 69 } },
+             v: { His: 24, Ile: 55, Leu: 86, Lys: 70, Met: 57, Phe: 97, Thr: 47, Trp: 15, Val: 69 },
+             macros: _ADULT_MACROS },
   cow:     { label: 'Cow\u2019s milk',    short: 'Cow milk',
              note: 'Bovine milk AA composition.',
-             v: { His: 27, Ile: 47, Leu: 95, Lys: 78, Met: 33, Phe: 102,Thr: 44, Trp: 14, Val: 64 } },
+             v: { His: 27, Ile: 47, Leu: 95, Lys: 78, Met: 33, Phe: 102,Thr: 44, Trp: 14, Val: 64 },
+             macros: _MILK_MACROS },
   muscle:  { label: 'Human muscle',       short: 'Muscle',
              note: 'Skeletal muscle composition (for athletes).',
-             v: { His: 28, Ile: 45, Leu: 75, Lys: 82, Met: 38, Phe: 78, Thr: 42, Trp: 11, Val: 47 } },
+             v: { His: 28, Ile: 45, Leu: 75, Lys: 82, Met: 38, Phe: 78, Thr: 42, Trp: 11, Val: 47 },
+             macros: _ATHLETE_MACROS },
   soy:     { label: 'Soy protein',        short: 'Soy',
              note: 'Reference for soy-based diets.',
-             v: { His: 26, Ile: 49, Leu: 82, Lys: 63, Met: 26, Phe: 95, Thr: 38, Trp: 13, Val: 50 } },
+             v: { His: 26, Ile: 49, Leu: 82, Lys: 63, Met: 26, Phe: 95, Thr: 38, Trp: 13, Val: 50 },
+             macros: _ADULT_MACROS },
 };
 const DEFAULT_PATTERN = 'avg';
 
@@ -194,6 +225,22 @@ const _MOCK_FOODS = [
   { id: 'blueberry',cat:'Fixed (fruit & veg)', name: 'Blueberries', emoji: '🫐',
     cost: 1.50, protein: 0.7, scalable: false, serving: 75,
     amino: { His: 12, Ile: 20, Leu: 35, Lys: 12,  Met: 6,   Phe: 22,  Thr: 18,  Trp: 6,   Val: 30 } },
+
+  // Macro-pure foods — solver-page only. Used to make macro constraints
+  // (kcal/fat/carbs/fiber) feasible without forcing weird AA solutions.
+  // `tag: 'macro'` lets PantryPicker hide them on the simple/essay surface.
+  { id: 'olive_oil', cat: 'Macro Pure', name: 'Olive oil', emoji: '🫒',
+    cost: 0.43, protein: 0, fat: 100, carbs: 0, fiber: 0, kcal: 884, tag: 'macro',
+    amino: { His: 0, Ile: 0, Leu: 0, Lys: 0, Met: 0, Phe: 0, Thr: 0, Trp: 0, Val: 0 } },
+  { id: 'mct_powder', cat: 'Macro Pure', name: 'MCT powder', emoji: '🥥',
+    cost: 2.00, protein: 0, fat: 70, carbs: 25, fiber: 0, kcal: 730, tag: 'macro',
+    amino: { His: 0, Ile: 0, Leu: 0, Lys: 0, Met: 0, Phe: 0, Thr: 0, Trp: 0, Val: 0 } },
+  { id: 'sugar', cat: 'Macro Pure', name: 'Sugar (granulated)', emoji: '🍬',
+    cost: 0.10, protein: 0, fat: 0, carbs: 100, fiber: 0, kcal: 387, tag: 'macro',
+    amino: { His: 0, Ile: 0, Leu: 0, Lys: 0, Met: 0, Phe: 0, Thr: 0, Trp: 0, Val: 0 } },
+  { id: 'psyllium', cat: 'Macro Pure', name: 'Psyllium husk', emoji: '🌾',
+    cost: 1.50, protein: 0, fat: 0, carbs: 8, fiber: 80, kcal: 200, tag: 'macro',
+    amino: { His: 0, Ile: 0, Leu: 0, Lys: 0, Met: 0, Phe: 0, Thr: 0, Trp: 0, Val: 0 } },
 ];
 
 // Merge USDA base with mock-only categories (protein powders, milks, dry
@@ -253,6 +300,23 @@ const BCAA_BLEND = {
 
 const ALL_SUPPLEMENTS = [...makeSupplementFoods(), BCAA_BLEND];
 
+// Per-AA degradation factors when food is cooked (heat damage). The AA
+// target is scaled by 1/(1 - loss) so the LP buys enough to compensate.
+// Values are PLACEHOLDERS — replace with literature numbers once nailed.
+// See FAO/WHO/UNU 2007 + Friedman, "Nutritional Value of Proteins from
+// Different Food Sources" for source data.
+const COOKED_AA_LOSS = {
+  His: 0.05,
+  Ile: 0.05,
+  Leu: 0.05,
+  Lys: 0.25,   // Maillard reactions hit lysine hardest
+  Met: 0.10,
+  Phe: 0.05,
+  Thr: 0.15,
+  Trp: 0.10,
+  Val: 0.05,
+};
+
 // Extra constraints (toggleable)
 const EXTRA_CONSTRAINTS = [
   { id: 'lysArg', label: 'Lys:Arg ≥ 1.2',
@@ -263,6 +327,8 @@ const EXTRA_CONSTRAINTS = [
     hint: 'Minimize max-surplus instead of min-cost. "Just enough" of each, not "much more".' },
   { id: 'bcaa',   label: 'High BCAA',
     hint: 'Forces Leu+Ile+Val above athletic target (~20% of total AA).' },
+  { id: 'cooked', label: 'Cooked (heat losses)',
+    hint: 'Compensates for cooking damage — scales each AA target up by its degradation factor (lysine hit hardest). Placeholder values; tune later.' },
 ];
 
 // Named examples (load both pantry subset + constraints)
@@ -285,6 +351,7 @@ const EXAMPLES = [
 const CATEGORIES = ['Grains','Legumes','Soy','Wheat Gluten','Protein Powder',
                     'Milk','Nuts',
                     'Fixed (fruit & veg)','Fixed (spreads & extras)',
+                    'Macro Pure',
                     'Supplement'];
 
 // Default daily protein target in g (for a 65 kg adult at 0.8 g/kg).
@@ -480,9 +547,21 @@ function lpSolve({ c, A, b }) {
 // opts: {weightKg, proteinG, mealFraction} forwarded to targetsFor.
 // ─────────────────────────────────────────────────────────────
 function lpSolveMeal({ pantryIds, fixedIds = [], pattern = DEFAULT_PATTERN,
-                      extras = [], supplementMultiplier = 10, opts = {} }) {
-  const targets = targetsFor(pattern, opts);
+                      extras = [], supplementMultiplier = 10, opts = {},
+                      macros = null }) {
+  const baseTargets = targetsFor(pattern, opts);
   const balanced = extras.includes('balanced');
+  // Cooked-food adjustment: scale each AA up by 1/(1 - per-AA loss).
+  const cooked = extras.includes('cooked');
+  const targets = cooked
+    ? Object.fromEntries(Object.entries(baseTargets).map(([k, v]) =>
+        [k, v * (1 / Math.max(0.01, 1 - (COOKED_AA_LOSS[k] || 0)))]))
+    : baseTargets;
+  // Macros: scale by mealFraction the same way targetsFor scales AAs.
+  const mfrac = (opts && opts.mealFraction) || 1;
+  const scaledMacros = macros ? Object.fromEntries(
+    Object.entries(macros).map(([k, v]) => [k, v == null ? null : v * mfrac])
+  ) : null;
 
   // Fixed foods at their serving size — subtract from targets.
   const fixedMeal = {};
@@ -521,10 +600,36 @@ function lpSolveMeal({ pantryIds, fixedIds = [], pattern = DEFAULT_PATTERN,
     minRhs.push(need);
   });
 
+  // Macro constraint rows. Each macro min/max becomes a ≥ inequality
+  // (max constraints are negated). Fixed-food contribution is subtracted
+  // from the bound so the LP only needs to "fill" the remainder.
+  const macroRows = [], macroRhs = [];
+  if (scaledMacros) {
+    const macroAxes = [
+      { key: 'kcal',    minK: 'kcalMin',    maxK: 'kcalMax',    eaten: fixedEval.kcal    },
+      { key: 'fat',     minK: 'fatMin',     maxK: 'fatMax',     eaten: fixedEval.fat     },
+      { key: 'carbs',   minK: 'carbsMin',   maxK: 'carbsMax',   eaten: fixedEval.carbs   },
+      { key: 'fiber',   minK: 'fiberMin',   maxK: null,         eaten: fixedEval.fiber   },
+      { key: 'protein', minK: null,         maxK: 'proteinMax', eaten: fixedEval.protein },
+    ];
+    macroAxes.forEach(({ key, minK, maxK, eaten }) => {
+      const row = variables.map(f => (f[key] || 0) / 100);
+      const ate = eaten || 0;
+      if (minK && scaledMacros[minK] != null) {
+        macroRows.push(row);
+        macroRhs.push(Math.max(0, scaledMacros[minK] - ate));
+      }
+      if (maxK && scaledMacros[maxK] != null) {
+        macroRows.push(row.map(v => -v));
+        macroRhs.push(-(Math.max(0, scaledMacros[maxK] - ate)));
+      }
+    });
+  }
+
   if (!balanced) {
     // Classic min-cost formulation.
-    A = minRows.slice();
-    b = minRhs.slice();
+    A = [...minRows, ...macroRows];
+    b = [...minRhs, ...macroRhs];
     c = c0.slice();
   } else {
     // Balanced mode: add slack t ≥ 0 and require for each AA
@@ -545,6 +650,8 @@ function lpSolveMeal({ pantryIds, fixedIds = [], pattern = DEFAULT_PATTERN,
       rows.push([...row.map(v => -v), need]);
       rhs.push(-need);
     });
+    // Macro rows in balanced mode: append a 0 t-coefficient.
+    macroRows.forEach((row, i) => { rows.push([...row, 0]); rhs.push(macroRhs[i]); });
     A = rows;
     b = rhs;
     c = [...c0.map(v => v * 1e-4), 1];   // minimize t, tiny cost pressure
@@ -597,7 +704,7 @@ const mockSolve = lpSolveMeal;
 
 Object.assign(window, {
   EAA, EAA_PER_KG, PROTEIN_PER_KG, PATTERNS, DEFAULT_PATTERN,
-  FOODS, AA_SUPPLEMENTS,
+  FOODS, AA_SUPPLEMENTS, COOKED_AA_LOSS,
   BCAA_BLEND, ALL_SUPPLEMENTS, EXTRA_CONSTRAINTS, EXAMPLES, CATEGORIES,
   PROTEIN_G, SCENARIOS, foodById, loadExtendedFoods,
   targetsFor, evaluate, mockSolve, lpSolve, lpSolveMeal,
