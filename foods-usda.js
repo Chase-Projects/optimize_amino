@@ -2405,9 +2405,9 @@ window.FOODS_USDA = [
     "state": "cooked"
   },
   {
-    "id": "broccoli",
+    "id": "broccoli_serv",
     "cat": "Vegetables",
-    "name": "Broccoli (cooked)",
+    "name": "Broccoli (per serving)",
     "emoji": "🥬",
     "svg": "https://cdn.jsdelivr.net/gh/hfg-gmuend/openmoji/color/svg/1F966.svg",
     "cost": 0.35,

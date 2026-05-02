@@ -24,8 +24,8 @@ const V2 = {
   tapeBlue:'rgba(155, 180, 195, 0.70)',
   font:    '"Nunito", "Nunito Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif',
   mono:    '"JetBrains Mono", "SF Mono", ui-monospace, monospace',
-  // hand: swapped from Caveat → Patrick Hand for legibility.
-  hand:    '"Patrick Hand", "Kalam", "Marker Felt", cursive',
+  // hand: cursive removed — use rounded sans (Nunito) for the same role.
+  hand:    '"Nunito", "Nunito Sans", -apple-system, system-ui, sans-serif',
 };
 
 function GridBg({ children, width = 900, style = {} }) {
@@ -56,7 +56,7 @@ function Tape({ side = 'top', color = 'yellow', length = 96, offset = 0 }) {
       right:  side === 'right'  ? -14 : 'unset',
       width:  isH ? length : 28,
       height: isH ? 24 : length,
-      transform: isH ? 'translateX(-50%) rotate(-2deg)' : 'translateY(-50%) rotate(-4deg)',
+      transform: isH ? 'translateX(-50%)' : 'translateY(-50%)',
       background: bg,
       backgroundImage: 'linear-gradient(135deg, transparent 48%, rgba(255,255,255,0.3) 50%, transparent 52%)',
       boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
@@ -67,9 +67,9 @@ function Tape({ side = 'top', color = 'yellow', length = 96, offset = 0 }) {
 }
 
 function Sticker({ tint = V2.stickerA, rotate = 0, tape, tapeColor, label, kicker, children, style = {} }) {
+  // rotation removed — keep the prop for backwards-compat but ignore it.
   return (
-    <div style={{ position: 'relative',
-      transform: `rotate(${rotate}deg)`, ...style }}>
+    <div style={{ position: 'relative', ...style }}>
       {tape && <Tape side={tape} color={tapeColor} />}
       <div style={{ background: tint, padding: '18px 22px 20px',
         boxShadow: '0 1px 1px rgba(0,0,0,0.04), 0 6px 16px rgba(60,40,20,0.08)',
@@ -100,34 +100,50 @@ function StickerTag({ emoji, label, tint = V2.stickerB, rotate = 0, size = 'md' 
       border: '1px solid rgba(0,0,0,0.06)',
       boxShadow: '0 1px 1px rgba(0,0,0,0.04), 0 6px 12px rgba(60,40,20,0.08)',
       display: 'inline-flex', alignItems: 'center', gap: 8,
-      fontFamily: V2.hand, fontSize: fs, color: V2.ink,
-      transform: rotate ? `rotate(${rotate}deg)` : undefined }}>
+      fontFamily: V2.hand, fontSize: fs, color: V2.ink, fontWeight: 700 }}>
       <span style={{ fontSize: fs + 2 }}>{emoji}</span>
       <span>{label}</span>
     </div>
   );
 }
 
+// Category → harmonized OKLCH-ish swatch tokens. One color per food
+// group; `tint` is the unselected pastel, `solid` is the selected fill.
+const CAT_TONE = {
+  'Grains':         { tint: '#f3e6c2', solid: '#c89a3a', ink: '#3a2a08' },
+  'Legumes':        { tint: '#e3ddc1', solid: '#7a6a3a', ink: '#2a2410' },
+  'Soy':            { tint: '#e6efd7', solid: '#6b8a4a', ink: '#1f2c10' },
+  'Wheat Gluten':   { tint: '#ead6c0', solid: '#a06a3a', ink: '#3a210c' },
+  'Protein Powder': { tint: '#e0e8ee', solid: '#4a6a82', ink: '#10202a' },
+  'Nuts/Seeds':     { tint: '#f0d8c8', solid: '#b06a4a', ink: '#3a1808' },
+  'Veg':            { tint: '#d8e6d4', solid: '#5a8a5e', ink: '#0e2410' },
+  'Fruit':          { tint: '#f4d6dc', solid: '#b85068', ink: '#3a0a18' },
+  'Fixed':          { tint: '#ece4d0', solid: '#8a7a4a', ink: '#2a2008' },
+  'Supplement':     { tint: '#e6dde6', solid: '#7a4a5a', ink: '#2a1018' },
+};
 function FoodChip({ food, grams, selected, onClick, variant = 'default' }) {
   const isFixed = food.scalable === false;
   const isSupp  = food.supplement === true;
-  const bg = selected
-    ? (isSupp ? V2.stickerB : isFixed ? V2.stickerE : V2.stickerC) : '#fff';
-  const bd = selected
-    ? (isSupp ? V2.mustard : isFixed ? V2.plum : V2.sage) : V2.rule;
+  const key = isSupp ? 'Supplement' : isFixed ? 'Fixed' : (CAT_TONE[food.cat] ? food.cat : 'Grains');
+  const tone = CAT_TONE[key];
+  const bg = selected ? tone.solid : tone.tint;
+  const fg = selected ? '#fff' : tone.ink;
   return (
     <button onClick={onClick}
       style={{ display: 'inline-flex', alignItems: 'center', gap: 8,
         padding: '7px 12px', background: bg,
-        border: `1.5px solid ${bd}`, borderRadius: 999,
-        fontSize: 13, cursor: onClick ? 'pointer' : 'default',
-        fontFamily: V2.font, color: V2.ink,
-        transition: 'background .15s, border-color .15s', outline: 'none' }}>
+        border: `1.5px solid ${selected ? tone.solid : 'rgba(0,0,0,0.06)'}`,
+        borderRadius: 999, fontSize: 13,
+        cursor: onClick ? 'pointer' : 'default',
+        fontFamily: V2.font, color: fg, fontWeight: 600,
+        transition: 'background .15s, border-color .15s, color .15s',
+        outline: 'none' }}>
       <span style={{ fontSize: 15 }}>{food.emoji}</span>
-      <span style={{ fontWeight: 600 }}>{food.name}</span>
+      <span>{food.name}</span>
       {grams != null && (
-        <span style={{ color: V2.mute, fontFamily: V2.mono,
-          fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
+        <span style={{ color: selected ? 'rgba(255,255,255,0.85)' : tone.ink,
+          fontFamily: V2.mono, fontSize: 11,
+          fontVariantNumeric: 'tabular-nums', opacity: 0.8 }}>
           {grams} g
         </span>
       )}
@@ -199,9 +215,8 @@ function AminoBars({ coverage, limiting, targets, totals, foodTotals, compact })
 
 function HandNote({ children, style = {}, rotate = -2, color }) {
   return (
-    <div style={{ fontFamily: V2.hand, fontSize: 19,
-      color: color || V2.tomato, lineHeight: 1.25,
-      transform: `rotate(${rotate}deg)`, ...style }}>
+    <div style={{ fontFamily: V2.hand, fontSize: 17, fontWeight: 700,
+      color: color || V2.tomato, lineHeight: 1.3, ...style }}>
       {children}
     </div>
   );
@@ -291,6 +306,6 @@ function InfoDot({ tip, placement = 'top' }) {
 }
 
 Object.assign(window, {
-  V2, GridBg, Tape, Sticker, StickerTag, FoodChip,
+  V2, GridBg, Tape, Sticker, StickerTag, FoodChip, CAT_TONE,
   AminoBars, HandNote, SectionHead, InfoTip, InfoDot,
 });

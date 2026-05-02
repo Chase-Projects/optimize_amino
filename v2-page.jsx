@@ -249,7 +249,6 @@ function V2Intro() {
                 padding: '18px 18px 16px',
                 border: '1px solid rgba(0,0,0,0.06)',
                 boxShadow: '0 1px 1px rgba(0,0,0,0.04), 0 6px 14px rgba(60,40,20,0.08)',
-                transform: `rotate(${[-0.6, 0.4, -0.3, 0.6, -0.5, 0.3][i]}deg)`,
                 fontFamily: V2.font, color: V2.ink, position: 'relative' }}>
               <div style={{ fontSize: 28, marginBottom: 6 }}>{ex.emoji}</div>
               <div style={{ fontSize: 16, fontWeight: 800 }}>{ex.name}</div>
@@ -283,7 +282,6 @@ function V2Intro() {
       <div style={{ position: 'relative', marginTop: 56,
         padding: '30px 34px', background: '#fffaea',
         border: `1.5px dashed ${V2.mustard}`, borderRadius: 2,
-        transform: 'rotate(-0.2deg)',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <div style={{ fontSize: 12, letterSpacing: 1.5,
